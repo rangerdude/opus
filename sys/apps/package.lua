@@ -1,8 +1,7 @@
-_G.requireInjector(_ENV)
-
-local Git      = require('git')
-local Packages = require('packages')
-local Util     = require('util')
+local BulkGet  = require('opus.bulkget')
+local Git      = require('opus.git')
+local Packages = require('opus.packages')
+local Util     = require('opus.util')
 
 local fs       = _G.fs
 local term     = _G.term
@@ -36,24 +35,42 @@ local function progress(max)
 	end
 end
 
-local function install(name)
-	local manifest = Packages:getManifest(name) or error('Invalid package')
-	local packageDir = fs.combine('packages', name)
-	local method = args[2] or 'local'
-	if method == 'remote' then
-		Util.writeTable(packageDir .. '/.install', {
-			mount = string.format('%s gitfs %s', packageDir, manifest.repository),
-		})
-		Util.writeTable(fs.combine(packageDir, '.package'), manifest)
-	else
-		local list = Git.list(manifest.repository)
-		local showProgress = progress(Util.size(list))
-		for path, entry in pairs(list) do
-			Util.download(entry.url, fs.combine(packageDir, path))
-			showProgress()
+local function install(name, isUpdate, ignoreDeps)
+	local manifest = Packages:downloadManifest(name) or error('Invalid package')
+
+	if not ignoreDeps then
+		if manifest.required then
+			for _, v in pairs(manifest.required) do
+				if isUpdate or not Packages:isInstalled(v) then
+					install(v, isUpdate)
+				end
+			end
 		end
 	end
-	return
+
+	print(string.format('%s: %s',
+		isUpdate and 'Updating' or 'Installing',
+		name))
+
+	local packageDir = fs.combine('packages', name)
+
+	local list = Git.list(manifest.repository)
+	local showProgress = progress(Util.size(list))
+
+	local getList = { }
+	for path, entry in pairs(list) do
+		table.insert(getList, {
+			path = fs.combine(packageDir, path),
+			url = entry.url
+		})
+	end
+
+	BulkGet.download(getList, function(_, s, m)
+		if not s then
+			error(m)
+		end
+		showProgress()
+	end)
 end
 
 if action == 'list' then
@@ -69,7 +86,23 @@ if action == 'install' then
 		error('Package is already installed')
 	end
 	install(name)
-	print('installation complete')
+	print('installation complete\n')
+	_G.printError('Reboot is required')
+	return
+end
+
+if action == 'refresh' then
+	print('Downloading...')
+	Packages:downloadList()
+	print('refresh complete')
+	return
+end
+
+if action == 'updateall' then
+	for name in pairs(Packages:installed()) do
+		install(name, true, true)
+	end
+	print('updateall complete')
 	return
 end
 
@@ -78,7 +111,7 @@ if action == 'update' then
 	if not Packages:isInstalled(name) then
 		error('Package is not installed')
 	end
-	install(name)
+	install(name, true)
 	print('update complete')
 	return
 end
