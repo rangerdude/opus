@@ -116,11 +116,11 @@ Event.addRoutine(function()
 	end
 end)
 
-device.wireless_modem.open(999)
-print('discovery: listening on port 999')
+device.wireless_modem.open(199)
+print('discovery: listening on port 199')
 
 Event.on('modem_message', function(_, _, sport, id, info, distance)
-	if sport == 999 and tonumber(id) and type(info) == 'table' then
+	if sport == 199 and tonumber(id) and type(info) == 'table' then
 		if type(info.label) == 'string' and type(info.id) == 'number' then
 
 			if not network[id] then
@@ -197,7 +197,7 @@ local function sendInfo()
 				end)
 			end
 		end
-		device.wireless_modem.transmit(999, os.getComputerID(), info)
+		device.wireless_modem.transmit(199, os.getComputerID(), info)
 	end
 end
 
