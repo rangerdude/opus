@@ -21,6 +21,6 @@ Select either master-1.8 for stable or develop-1.8 for the upcoming release
 
 ## Install (MC 1.7)
 ```
-pastebin run sj4VMVJj
+pastebin run uzghlbnc
 reboot
 ```

@@ -1,11 +1,16 @@
-requireInjector(getfenv(1))
+_G.requireInjector(_ENV)
 
 local Config = require('config')
 local Event  = require('event')
 local UI     = require('ui')
 local Util   = require('util')
 
-multishell.setTitle(multishell.getCurrent(), 'Files')
+local colors     = _G.colors
+local fs         = _G.fs
+local multishell = _ENV.multishell
+local os         = _G.os
+local shell      = _ENV.shell
+
 UI:configure('Files', ...)
 
 local config = {
@@ -20,7 +25,7 @@ local marked = { }
 local directories = { }
 local cutMode = false
 
-function formatSize(size)
+local function formatSize(size)
   if size >= 1000000 then
     return string.format('%dM', math.floor(size/1000000, 2))
   elseif size >= 1000 then
@@ -32,54 +37,43 @@ end
 local Browser = UI.Page {
   menuBar = UI.MenuBar {
     buttons = {
-      { text = '^-',   event = 'updir'                           },
-      { text = 'File', event = 'dropdown', dropdown = 'fileMenu' },
-      { text = 'Edit', event = 'dropdown', dropdown = 'editMenu' },
-      { text = 'View', event = 'dropdown', dropdown = 'viewMenu' },
+      { text = '^-',   event = 'updir' },
+      { text = 'File', dropdown = {
+          { text = 'Run',             event = 'run'    },
+          { text = 'Edit       e',    event = 'edit'   },
+          { text = 'Shell      s',    event = 'shell'  },
+          UI.MenuBar.spacer,
+          { text = 'Quit       q',    event = 'quit'   },
+      } },
+      { text = 'Edit', dropdown = {
+          { text = 'Cut          ^x', event = 'cut'    },
+          { text = 'Copy         ^c', event = 'copy'   },
+          { text = 'Copy path      ', event = 'copy_path' },
+          { text = 'Paste        ^v', event = 'paste'  },
+          UI.MenuBar.spacer,
+          { text = 'Mark          m', event = 'mark'   },
+          { text = 'Unmark all    u', event = 'unmark' },
+          UI.MenuBar.spacer,
+          { text = 'Delete      del', event = 'delete' },
+      } },
+      { text = 'View', dropdown = {
+          { text = 'Refresh     r',   event = 'refresh'       },
+          { text = 'Hidden     ^h',   event = 'toggle_hidden' },
+          { text = 'Dir Size   ^s',   event = 'toggle_dirSize' },
+      } },
     },
   },
-  fileMenu = UI.DropMenu {
-    buttons = {
-      { text = 'Run',             event = 'run'    },
-      { text = 'Edit       e',    event = 'edit'   },
-      { text = 'Shell      s',    event = 'shell'  },
-      UI.Text { value = ' ------------ '           },
-      { text = 'Quit       q',    event = 'quit'   },
-      UI.Text { },
-    }
-  },
-  editMenu = UI.DropMenu {
-    buttons = {
-      { text = 'Cut          ^x', event = 'cut'    },
-      { text = 'Copy         ^c', event = 'copy'   },
-      { text = 'Paste        ^v', event = 'paste'  },
-      UI.Text { value = ' --------------- '        },
-      { text = 'Mark          m', event = 'mark'   },
-      { text = 'Unmark all    u', event = 'unmark' },
-      UI.Text { value = ' --------------- '        },
-      { text = 'Delete      del', event = 'delete' },
-      UI.Text { },
-    }
-  },
-  viewMenu = UI.DropMenu {
-    buttons = {
-      { text = 'Refresh     r',   event = 'refresh'       },
-      { text = 'Hidden     ^h',   event = 'toggle_hidden' },
-      { text = 'Dir Size   ^s',   event = 'toggle_dirSize' },
-      UI.Text { },
-    }
-  },
   grid = UI.ScrollingGrid {
-    columns = { 
+    columns = {
       { heading = 'Name', key = 'name'             },
       {                   key = 'flags', width = 2 },
-      { heading = 'Size', key = 'fsize', width = 6 },
+      { heading = 'Size', key = 'fsize', width = 5 },
     },
     sortColumn = 'name',
     y = 2, ey = -2,
   },
   statusBar = UI.StatusBar {
-    columns = { 
+    columns = {
       { key = 'status'               },
       { key = 'totalSize', width = 6 },
     },
@@ -96,6 +90,7 @@ local Browser = UI.Page {
     d               = 'delete',
     delete          = 'delete',
     [ 'control-h' ] = 'toggle_hidden',
+    [ 'control-s' ] = 'toggle_dirSize',
     [ 'control-x' ] = 'cut',
     [ 'control-c' ] = 'copy',
     paste           = 'paste',
@@ -105,6 +100,16 @@ local Browser = UI.Page {
 function Browser:enable()
   UI.Page.enable(self)
   self:setFocus(self.grid)
+end
+
+function Browser.menuBar:getActive(menuItem)
+  local file = Browser.grid:getSelected()
+  if file then
+    if menuItem.event == 'edit' or menuItem.event == 'run' then
+      return not file.isDir
+    end
+  end
+  return true
 end
 
 function Browser.grid:sortCompare(a, b)
@@ -119,7 +124,7 @@ function Browser.grid:sortCompare(a, b)
   return a.isDir
 end
 
-function Browser.grid:getRowTextColor(file, selected)
+function Browser.grid:getRowTextColor(file)
   if file.marked then
     return colors.green
   end
@@ -130,13 +135,6 @@ function Browser.grid:getRowTextColor(file, selected)
     return colors.pink
   end
   return colors.white
-end
-
-function Browser.grid:getRowBackgroundColorX(file, selected)
-  if selected then
-    return colors.gray
-  end
-  return self.backgroundColor
 end
 
 function Browser.grid:eventHandler(event)
@@ -164,14 +162,13 @@ function Browser:setStatus(status, ...)
 end
 
 function Browser:unmarkAll()
-  for k,m in pairs(marked) do
+  for _,m in pairs(marked) do
     m.marked = false
   end
   Util.clear(marked)
 end
 
 function Browser:getDirectory(directory)
-  
   local s, dir = pcall(function()
 
     local dir = directories[directory]
@@ -205,7 +202,6 @@ function Browser:updateDirectory(dir)
     dir.size = #files
     for _, file in pairs(files) do
       file.fullName = fs.combine(dir.name, file.name)
-      file.directory = directory
       file.flags = ''
       if not file.isDir then
         dir.totalSize = dir.totalSize + file.size
@@ -233,13 +229,12 @@ function Browser:updateDirectory(dir)
 end
 
 function Browser:setDir(dirName, noStatus)
-
   self:unmarkAll()
 
   if self.dir then
     self.dir.index = self.grid:getIndex()
   end
-  DIR = fs.combine('', dirName)
+  local DIR = fs.combine('', dirName)
   shell.setDir(DIR)
   local s, dir = self:getDirectory(DIR)
   if s then
@@ -259,9 +254,15 @@ function Browser:setDir(dirName, noStatus)
   self.grid:setIndex(self.dir.index)
 end
 
-function Browser:run(path, ...)
-  local tabId = shell.openTab(path, ...)
-  multishell.setFocus(tabId)
+function Browser:run(...)
+  if multishell then
+    local tabId = shell.openTab(...)
+    multishell.setFocus(tabId)
+  else
+    shell.run(...)
+    Event.terminate = false
+    self:draw()
+  end
 end
 
 function Browser:hasMarked()
@@ -352,7 +353,7 @@ function Browser:eventHandler(event)
       self.statusBar:sync()
       local _, ch = os.pullEvent('char')
       if ch == 'y' or ch == 'Y' then
-        for k,m in pairs(marked) do
+        for _,m in pairs(marked) do
           pcall(function()
             fs.delete(m.fullName)
           end)
@@ -378,8 +379,13 @@ function Browser:eventHandler(event)
       self:setStatus('Copied %d file(s)', Util.size(copied))
     end
 
+  elseif event.type == 'copy_path' then
+    if file then
+      os.queueEvent('clipboard_copy', file.fullName)
+    end
+
   elseif event.type == 'paste' then
-    for k,m in pairs(copied) do
+    for _,m in pairs(copied) do
       local s, m = pcall(function()
         if cutMode then
           fs.move(m.fullName, fs.combine(self.dir.name, m.name))

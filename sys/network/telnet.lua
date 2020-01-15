@@ -2,84 +2,81 @@ local Event  = require('event')
 local Socket = require('socket')
 local Util   = require('util')
 
+local kernel = _G.kernel
+local term   = _G.term
+local window = _G.window
+
 local function telnetHost(socket)
+	local methods = { 'clear', 'clearLine', 'setCursorPos', 'write', 'blit',
+										'setTextColor', 'setTextColour', 'setBackgroundColor',
+										'setBackgroundColour', 'scroll', 'setCursorBlink', }
 
-  requireInjector(getfenv(1))
+	local termInfo = socket:read(5)
+	if not termInfo then
+		_G.printError('read failed')
+		return
+	end
 
-  local Event = require('event')
+	local win = window.create(_G.device.terminal, 1, 1, termInfo.width, termInfo.height, false)
+	win.setCursorPos(table.unpack(termInfo.pos))
 
-  local methods = { 'clear', 'clearLine', 'setCursorPos', 'write', 'blit',
-                    'setTextColor', 'setTextColour', 'setBackgroundColor',
-                    'setBackgroundColour', 'scroll', 'setCursorBlink', }
+	for _,k in pairs(methods) do
+		local fn = win[k]
+		win[k] = function(...)
 
-  local termInfo = socket:read(5)
-  if not termInfo then
-    printtError('read failed')
-    return
-  end
+			if not socket.queue then
+				socket.queue = { }
+				Event.onTimeout(0, function()
+					socket:write(socket.queue)
+					socket.queue = nil
+				end)
+			end
 
-  socket.term = term.current()
-  local oldWindow = Util.shallowCopy(socket.term)
+			table.insert(socket.queue, {
+				f = k,
+				args = { ... },
+			})
+			fn(...)
+		end
+	end
 
-  for _,k in pairs(methods) do
-    socket.term[k] = function(...)
+	local shellThread = kernel.run({
+		terminal = win,
+		window = win,
+		title = 'Telnet client',
+		hidden = true,
+		co = coroutine.create(function()
+			Util.run(_ENV, 'sys/apps/shell', table.unpack(termInfo.program))
+			if socket.queue then
+				socket:write(socket.queue)
+			end
+			socket:close()
+		end)
+	})
 
-      if not socket.queue then
-        socket.queue = { }
-        Event.onTimeout(0, function()
-          socket:write(socket.queue)
-          socket.queue = nil
-        end)
-      end
-
-      table.insert(socket.queue, {
-        f = k,
-        args = { ... },
-      })
-      oldWindow[k](...)
-    end
-  end
-
-  socket.term.getSize = function()
-    return termInfo.width, termInfo.height
-  end
-
-  local shellThread = Event.addRoutine(function()
-    os.run(getfenv(1), 'sys/apps/shell')
-    Event.exitPullEvents()
-  end)
-
-  Event.addRoutine(function()
-    while true do
-      local data = socket:read()
-      if not data then
-        Event.exitPullEvents()
-        break
-      end
-      shellThread:resume(table.unpack(data))
-    end
-  end)
-
-  Event.pullEvents()
-
-  socket:close()
-  shellThread:terminate()
+	Event.addRoutine(function()
+		while true do
+			local data = socket:read()
+			if not data then
+				shellThread:resume('terminate')
+				break
+			end
+			local previousTerm = term.current()
+			shellThread:resume(table.unpack(data))
+			term.redirect(previousTerm)
+		end
+	end)
 end
 
 Event.addRoutine(function()
+	print('telnet: listening on port 23')
+	while true do
+		local socket = Socket.server(23)
 
-  print('telnet: listening on port 23')
-  while true do
-    local socket = Socket.server(23)
+		print('telnet: connection from ' .. socket.dhost)
 
-    print('telnet: connection from ' .. socket.dhost)
-
-    multishell.openTab({
-      fn = telnetHost,
-      args = { socket },
-      env = getfenv(1),
-      title = 'Telnet Client',
-      hidden = true,
-    })
-  end
+		Event.addRoutine(function()
+			telnetHost(socket)
+		end)
+	end
 end)
