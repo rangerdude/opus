@@ -117,7 +117,7 @@ local function sendCommand(host, command)
 	page.notification:info('Connecting')
 	page:sync()
 
-	local socket = Socket.connect(host, 161)
+	local socket = Socket.connect(host, 461)
 	if socket then
 		socket:write({ type = command })
 		socket:close()
