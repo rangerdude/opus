@@ -54,10 +54,11 @@ end
 
 Event.addRoutine(function()
 
-	print('vnc: listening on port 5900')
+	print('vnc: listening on port 5990') -- ranger
 
 	while true do
-		local socket = Socket.server(5900)
+		local socket = Socket.server(5990) -- ranger
+		print(socket) -- ranger
 
 		print('vnc: connection from ' .. socket.dhost)
 
@@ -78,6 +79,7 @@ Event.addRoutine(function()
 
 	while true do
 		local socket = Socket.server(5901, { ENCRYPT = true })
+		print(socket) --ranger
 
 		print('svnc: connection from ' .. socket.dhost)
 
@@ -86,7 +88,7 @@ Event.addRoutine(function()
 		local s, m = pcall(vncHost, socket)
 		socket:close()
 		if not s and m then
-			print('vnc error')
+			print('svnc error')
 			_G.printError(m)
 		end
 	end
