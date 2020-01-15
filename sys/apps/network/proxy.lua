@@ -45,9 +45,9 @@ local function proxyConnection(socket)
 end
 
 Event.addRoutine(function()
-	print('proxy: listening on port 188')
+	print('proxy: listening on port 488')
 	while true do
-		local socket = Socket.server(188)
+		local socket = Socket.server(488)
 
 		print('proxy: connection from ' .. socket.dhost)
 
