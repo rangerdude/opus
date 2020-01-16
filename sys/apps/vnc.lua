@@ -28,14 +28,14 @@ if multishell then
 end
 
 local function connect()
-	local socket, msg, reason = Socket.connect(remoteId, options.s and 5901 or 5900)
+	local socket, msg, reason = Socket.connect(remoteId, options.s and 5901 or 5990)
 
 	if reason == 'NOTRUST' then
 		local s, m = shell.run('trust ' .. remoteId)
 		if not s then
 			return s, m
 		end
-		socket, msg = Socket.connect(remoteId, 5900)
+		socket, msg = Socket.connect(remoteId, 5990)
 	end
 
 	if not socket then

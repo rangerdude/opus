@@ -87,9 +87,9 @@ Event.addRoutine(function()
 end)
 
 Event.addRoutine(function()
-	print('telnet: listening on port 23')
+	print('telnet: listening on port 423')
 	while true do
-		local socket = Socket.server(23)
+		local socket = Socket.server(423)
 
 		print('telnet: connection from ' .. socket.dhost)
 

@@ -14,7 +14,7 @@ UI:configure('Network', ...)
 
 local gridColumns = {
 	{ heading = 'Label',  key = 'label'    },
-	{ heading = 'Dist',   key = 'distance', align = 'right' },
+	{ heading = 'ID',   key = 'id'},
 	{ heading = 'Status', key = 'status'   },
 }
 
@@ -181,10 +181,10 @@ function page:eventHandler(event)
 	local t = self.grid:getSelected()
 	if t then
 		if event.type == 'telnet' then
-			shell.openForegroundTab('telnet ' .. t.id)
+			shell.openForegroundTab('telnet' .. t.id)
 
 		elseif event.type == 'vnc' then
-			shell.openForegroundTab('vnc.lua ' .. t.id)
+			shell.openForegroundTab('vnc.lua' .. t.id)
 			os.queueEvent('overview_shortcut', {
 				title = t.label,
 				category = "VNC",

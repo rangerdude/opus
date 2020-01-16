@@ -60,10 +60,10 @@ local function sambaConnection(socket)
 end
 
 Event.addRoutine(function()
-	print('samba: listening on port 139')
+	print('samba: listening on port 439')
 
 	while true do
-		local socket = Socket.server(139)
+		local socket = Socket.server(439)
 
 		Event.addRoutine(function()
 			print('samba: connection from ' .. socket.dhost)

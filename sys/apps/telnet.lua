@@ -29,7 +29,7 @@ end
 local socket, msg, reason
 
 while true do
-	socket, msg, reason = Socket.connect(remoteId, options.s and 22 or 23)
+	socket, msg, reason = Socket.connect(remoteId, options.s and 22 or 423)
 
 	if socket then
 		break
