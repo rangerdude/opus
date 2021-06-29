@@ -1,7 +1,6 @@
-_G.requireInjector(_ENV)
-
 local Array    = require('opus.array')
 local Terminal = require('opus.terminal')
+local trace    = require('opus.trace')
 local Util     = require('opus.util')
 
 _G.kernel = {
@@ -21,7 +20,7 @@ local w, h = term.getSize()
 kernel.terminal = term.current()
 
 kernel.window = Terminal.window(kernel.terminal, 1, 1, w, h, false)
-kernel.window.setMaxScroll(100)
+kernel.window.setMaxScroll(200)
 
 local focusedRoutineEvents = Util.transpose {
 	'char', 'key', 'key_up',
@@ -30,10 +29,8 @@ local focusedRoutineEvents = Util.transpose {
 }
 
 _G._syslog = function(pattern, ...)
-	local oldTerm = term.redirect(kernel.window)
 	kernel.window.scrollBottom()
-	Util.print(pattern, ...)
-	term.redirect(oldTerm)
+	kernel.window.print(Util.tostring(pattern, ...))
 end
 
 -- any function that runs in a kernel hook does not run in
@@ -52,18 +49,22 @@ function kernel.hook(event, fn)
 	end
 end
 
--- you can only unhook from within the function that hooked
+-- you *should* only unhook from within the function that hooked
 function kernel.unhook(event, fn)
-	local eventHooks = kernel.hooks[event]
-	if eventHooks then
-		Array.removeByValue(eventHooks, fn)
-		if #eventHooks == 0 then
-			kernel.hooks[event] = nil
+	if type(event) == 'table' then
+		for _,v in pairs(event) do
+			kernel.unhook(v, fn)
+		end
+	else
+		local eventHooks = kernel.hooks[event]
+		if eventHooks then
+			Array.removeByValue(eventHooks, fn)
+			if #eventHooks == 0 then
+				kernel.hooks[event] = nil
+			end
 		end
 	end
 end
-
-local Routine = { }
 
 local function switch(routine, previous)
 	if routine then
@@ -82,6 +83,8 @@ local function switch(routine, previous)
 	end
 end
 
+local Routine = { }
+
 function Routine:resume(event, ...)
 	if not self.co or coroutine.status(self.co) == 'dead' then
 		return
@@ -91,32 +94,61 @@ function Routine:resume(event, ...)
 		local previousTerm = term.redirect(self.terminal)
 
 		local previous = kernel.running
-		kernel.running = self -- stupid shell set title
+		kernel.running = self
 		local ok, result = coroutine.resume(self.co, event, ...)
 		kernel.running = previous
 
-		if ok then
-			self.filter = result
-		else
-			_G.printError(result)
-		end
-
+		self.filter = result
 		self.terminal = term.current()
 		term.redirect(previousTerm)
 
-		if not ok and self.haltOnError then
-			error(result, -1)
-		end
-		if coroutine.status(self.co) == 'dead' then
-			Array.removeByValue(kernel.routines, self)
-			if #kernel.routines > 0 then
-				switch(kernel.routines[1])
-			end
-			if self.haltOnExit then
-				kernel.halt()
-			end
-		end
 		return ok, result
+	end
+end
+
+function Routine:run()
+	self.co = self.co or coroutine.create(function()
+		local result, err, fn, stack
+
+		if self.fn then
+			fn = self.fn
+			_G.setfenv(fn, self.env)
+		elseif self.path then
+			fn, err = loadfile(self.path, self.env)
+		elseif self.chunk then
+			fn, err = load(self.chunk, self.title, nil, self.env)
+		end
+
+		if fn then
+			result, err, stack = trace(fn, table.unpack(self.args or { } ))
+		else
+			err = err or 'kernel: invalid routine'
+		end
+
+		pcall(self.onExit, self, result, err, stack)
+		self:cleanup()
+
+		if not result then
+			error(err)
+		end
+	end)
+
+	table.insert(kernel.routines, self)
+
+	return self:resume()
+end
+
+-- override if any post processing is required
+function Routine:onExit(status, message) -- self, status, message
+	if not status and message ~= 'Terminated' then
+		_G.printError(message)
+	end
+end
+
+function Routine:cleanup()
+	Array.removeByValue(kernel.routines, self)
+	if #kernel.routines > 0 then
+		switch(kernel.routines[1])
 	end
 end
 
@@ -132,51 +164,34 @@ function kernel.getShell()
 	return shell
 end
 
-function kernel.newRoutine(args)
+-- each routine inherits the parent's env
+function kernel.makeEnv(env, dir)
+	env = setmetatable(Util.shallowCopy(env or _ENV), { __index = _G })
+	_G.requireInjector(env, dir)
+	return env
+end
+
+function kernel.newRoutine(env, args)
 	kernel.UID = kernel.UID + 1
 
 	local routine = setmetatable({
 		uid = kernel.UID,
 		timestamp = os.clock(),
-		terminal = kernel.window,
 		window = kernel.window,
 		title = 'untitled',
 	}, { __index = Routine })
 
 	Util.merge(routine, args)
-	routine.env = args.env or Util.shallowCopy(shell.getEnv())
+	routine.env = args.env or kernel.makeEnv(env, routine.path and fs.getDir(routine.path))
+	routine.terminal = routine.terminal or routine.window
 
 	return routine
 end
 
-function kernel.launch(routine)
-	routine.co = routine.co or coroutine.create(function()
-		local result, err
-
-		if routine.fn then
-			result, err = Util.runFunction(routine.env, routine.fn, table.unpack(routine.args or { } ))
-		elseif routine.path then
-			result, err = Util.run(routine.env, routine.path, table.unpack(routine.args or { } ))
-		else
-			err = 'kernel: invalid routine'
-		end
-
-		if not result and err ~= 'Terminated' then
-			error(err or 'Error occurred', 2)
-		end
-	end)
-
-	table.insert(kernel.routines, routine)
-
-	local s, m = routine:resume()
-
-	return not s and s or routine.uid, m
-end
-
-function kernel.run(args)
-	local routine = kernel.newRoutine(args)
-	kernel.launch(routine)
-	return routine
+function kernel.run(env, args)
+	local routine = kernel.newRoutine(env, args)
+	local s, m = routine:run()
+	return s and routine, m
 end
 
 function kernel.raise(uid)
@@ -194,8 +209,6 @@ function kernel.raise(uid)
 		end
 
 		switch(routine, previous)
---		local previous = eventData[2]
---			local routine = kernel.find(previous)
 		return true
 	end
 	return false
@@ -223,8 +236,8 @@ function kernel.find(uid)
 	return Util.find(kernel.routines, 'uid', uid)
 end
 
-function kernel.halt()
-	os.queueEvent('kernel_halt')
+function kernel.halt(status, message)
+	os.queueEvent('kernel_halt', status, message)
 end
 
 function kernel.event(event, eventData)
@@ -266,19 +279,24 @@ function kernel.event(event, eventData)
 end
 
 function kernel.start()
-	local s, m = pcall(function()
+	local s, m
+	local s2, m2 = pcall(function()
 		repeat
 			local eventData = { os.pullEventRaw() }
 			local event = table.remove(eventData, 1)
 			kernel.event(event, eventData)
+			if event == 'kernel_halt' then
+				s = eventData[1]
+				m = eventData[2]
+			end
 		until event == 'kernel_halt'
 	end)
 
-	if not s then
+	if (not s and m) or (not s2 and m2) then
 		kernel.window.setVisible(true)
 		term.redirect(kernel.window)
 		print('\nCrash detected\n')
-		_G.printError(m)
+		_G.printError(m or m2)
 	end
 	term.redirect(kernel.terminal)
 end
@@ -295,9 +313,10 @@ local function init(...)
 	for _,file in ipairs(files) do
 		local level = file:match('(%d).%S+.lua') or 99
 		if tonumber(level) <= runLevel then
+			-- All init programs run under the original shell
 			local s, m = shell.run(fs.combine(dir, file))
 			if not s then
-				error(m)
+				error(m, -1)
 			end
 			os.sleep(0)
 		end
@@ -311,15 +330,15 @@ local function init(...)
 			term.redirect(kernel.window)
 			shell.run('sys/apps/autorun.lua')
 
-			local shellWindow = window.create(kernel.terminal, 1, 1, w, h, false)
-			local s, m = kernel.run({
+			local win = window.create(kernel.terminal, 1, 1, w, h, true)
+			local s, m = kernel.run(_ENV, {
 				title = args[1],
 				path = 'sys/apps/shell.lua',
 				args = args,
-				haltOnExit = true,
-				haltOnError = true,
-				terminal = shellWindow,
-				window = shellWindow,
+				window = win,
+				onExit = function(_, s, m)
+					kernel.halt(s, m)
+				end,
 			})
 			if s then
 				kernel.raise(s.uid)
@@ -330,11 +349,15 @@ local function init(...)
 	end
 end
 
-kernel.run({
+kernel.run(_ENV, {
 	fn = init,
 	title = 'init',
-	haltOnError = true,
 	args = { ... },
+	onExit = function(_, status, message)
+		if not status then
+			kernel.halt(status, message)
+		end
+	end,
 })
 
 kernel.start()

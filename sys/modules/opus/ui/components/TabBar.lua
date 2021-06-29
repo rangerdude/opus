@@ -6,9 +6,7 @@ UI.TabBar = class(UI.MenuBar)
 UI.TabBar.defaults = {
 	UIElement = 'TabBar',
 	buttonClass = 'TabBarMenuItem',
-}
-UI.TabBar.inherits = {
-	selectedBackgroundColor = 'backgroundColor',
+	backgroundColor = 'black',
 }
 function UI.TabBar:enable()
 	UI.MenuBar.enable(self)
@@ -32,14 +30,8 @@ function UI.TabBar:eventHandler(event)
 				self:emit({ type = 'tab_change', current = si, last = pi, tab = selected })
 			end
 		end
-		UI.MenuBar.draw(self)
+		self:draw(self)
 	end
 	return UI.MenuBar.eventHandler(self, event)
 end
 
-function UI.TabBar:selectTab(text)
-	local menuItem = Util.find(self.children, 'text', text)
-	if menuItem then
-		menuItem.selected = true
-	end
-end

@@ -49,7 +49,7 @@ page = UI.Page {
 		backgroundColor = colors.red,
 		y = '50%',
 		properties = UI.Tab {
-			tabTitle = 'Properties',
+			title = 'Properties',
 			grid = UI.ScrollingGrid {
 				headerBackgroundColor = colors.red,
 				sortColumn = 'key',
@@ -64,7 +64,7 @@ page = UI.Page {
 		},
 		methodsTab = UI.Tab {
 			index = 2,
-			tabTitle = 'Methods',
+			title = 'Methods',
 			grid = UI.ScrollingGrid {
 				ex = '50%',
 				headerBackgroundColor = colors.red,
@@ -85,7 +85,7 @@ page = UI.Page {
 		},
 		events = UI.Tab {
 			index = 1,
-			tabTitle = 'Events',
+			title = 'Events',
 			UI.MenuBar {
 				y = -1,
 				backgroundColor = colors.red,
@@ -110,7 +110,7 @@ page = UI.Page {
 					self.grid:draw()
 
 				elseif event.type == 'grid_select' then
-					multishell.openTab({
+					multishell.openTab(_ENV, {
 						path = 'sys/apps/Lua.lua',
 						args = { event.selected.raw },
 						focused = true,
@@ -133,6 +133,12 @@ page = UI.Page {
 			},
 		},
 	},
+	accelerators = {
+		['shift-right'] = 'size',
+		['shift-left' ] = 'size',
+		['shift-up'   ] = 'size',
+		['shift-down' ] = 'size',
+	},
 	eventHandler = function (self, event)
 		if event.type == 'focus_change' and isRelevant(event.focused) then
 			focused = event.focused
@@ -144,7 +150,6 @@ page = UI.Page {
 				})
 			end
 			self.tabs.properties.grid:setValues(t)
-			self.tabs.properties.grid:update()
 			self.tabs.properties.grid:draw()
 
 			t = { }
@@ -156,7 +161,6 @@ page = UI.Page {
 				end
 			end
 			self.tabs.methodsTab.grid:setValues(t)
-			self.tabs.methodsTab.grid:update()
 			self.tabs.methodsTab.grid:draw()
 
 		elseif event.type == 'edit_property' then
@@ -168,6 +172,19 @@ page = UI.Page {
 
 		elseif event.type == 'editor_apply' then
 			self.editor:hide()
+
+		elseif event.type == 'size' then
+			local sizing = {
+				['shift-right'] = {  1,  0 },
+				['shift-left' ] = { -1,  0 },
+				['shift-up'   ] = {  0, -1 },
+				['shift-down' ] = {  0,  1 },
+			}
+			self.ox = math.max(self.ox + sizing[event.ie.code][1], 1)
+			self.oy = math.max(self.oy + sizing[event.ie.code][2], 1)
+			UI.term:clear()
+			self:resize()
+			self:draw()
 		end
 
 		return UI.Page.eventHandler(self, event)
@@ -175,4 +192,4 @@ page = UI.Page {
 }
 
 UI:setPage(page)
-UI:pullEvents()
+UI:start()

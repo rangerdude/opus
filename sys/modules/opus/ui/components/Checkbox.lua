@@ -1,8 +1,6 @@
 local class = require('opus.class')
 local UI    = require('opus.ui')
 
-local colors = _G.colors
-
 UI.Checkbox = class(UI.Window)
 UI.Checkbox.defaults = {
 	UIElement = 'Checkbox',
@@ -11,21 +9,20 @@ UI.Checkbox.defaults = {
 	leftMarker = UI.extChars and '\124' or '[',
 	rightMarker = UI.extChars and '\124' or ']',
 	value = false,
-	textColor = colors.white,
-	backgroundColor = colors.black,
-	backgroundFocusColor = colors.lightGray,
+	textColor = 'white',
+	backgroundColor = 'black',
+	backgroundFocusColor = 'lightGray',
+	event = 'checkbox_change',
 	height = 1,
 	width = 3,
 	accelerators = {
-		space = 'checkbox_toggle',
+		[ ' ' ] = 'checkbox_toggle',
 		mouse_click = 'checkbox_toggle',
 	}
 }
-UI.Checkbox.inherits = {
-	labelBackgroundColor = 'backgroundColor',
-}
-function UI.Checkbox:postInit()
+function UI.Checkbox:layout()
 	self.width = self.label and #self.label + 4 or 3
+	UI.Window.layout(self)
 end
 
 function UI.Checkbox:draw()
@@ -56,7 +53,7 @@ end
 function UI.Checkbox:eventHandler(event)
 	if event.type == 'checkbox_toggle' then
 		self.value = not self.value
-		self:emit({ type = 'checkbox_change', checked = self.value, element = self })
+		self:emit({ type = self.event, checked = self.value, element = self })
 		self:draw()
 		return true
 	end

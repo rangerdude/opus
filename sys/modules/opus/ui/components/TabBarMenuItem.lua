@@ -1,27 +1,20 @@
 local class = require('opus.class')
 local UI    = require('opus.ui')
 
-local colors = _G.colors
-
 UI.TabBarMenuItem = class(UI.Button)
 UI.TabBarMenuItem.defaults = {
 	UIElement = 'TabBarMenuItem',
 	event = 'tab_select',
-	textColor = colors.black,
-	selectedBackgroundColor = colors.cyan,
-	unselectedBackgroundColor = colors.lightGray,
-	backgroundColor = colors.lightGray,
-}
-UI.TabBarMenuItem.inherits = {
-	selectedBackgroundColor = 'selectedBackgroundColor',
 }
 function UI.TabBarMenuItem:draw()
 	if self.selected then
-		self.backgroundColor = self.selectedBackgroundColor
-		self.backgroundFocusColor = self.selectedBackgroundColor
+		self.backgroundColor = self:getProperty('selectedBackgroundColor')
+		self.backgroundFocusColor = self.backgroundColor
+		self.textColor = self:getProperty('selectedTextColor')
 	else
-		self.backgroundColor = self.unselectedBackgroundColor
-		self.backgroundFocusColor = self.unselectedBackgroundColor
+		self.backgroundColor = self:getProperty('unselectedBackgroundColor')
+		self.backgroundFocusColor = self.backgroundColor
+		self.textColor = self:getProperty('unselectedTextColor')
 	end
 	UI.Button.draw(self)
 end

@@ -1,5 +1,3 @@
-_G.requireInjector(_ENV)
-
 local Config = require('opus.config')
 
 local device     = _G.device
@@ -17,7 +15,7 @@ do
 end
 
 local function startNetwork()
-	kernel.run({
+	kernel.run(_ENV, {
 		title = 'Net daemon',
 		path = 'sys/apps/netdaemon.lua',
 		hidden = true,

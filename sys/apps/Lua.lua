@@ -1,6 +1,3 @@
--- Lua may be called from outside of shell - inject a require
-_G.requireInjector(_ENV)
-
 local History    = require('opus.history')
 local UI         = require('opus.ui')
 local Util       = require('opus.util')
@@ -10,10 +7,8 @@ local os         = _G.os
 local textutils  = _G.textutils
 local term       = _G.term
 
-local _exit
-
 local sandboxEnv = setmetatable(Util.shallowCopy(_ENV), { __index = _G })
-sandboxEnv.exit = function() _exit = true end
+sandboxEnv.exit = function() UI:quit() end
 sandboxEnv._echo = function( ... ) return { ... } end
 _G.requireInjector(sandboxEnv)
 
@@ -34,7 +29,6 @@ local page = UI.Page {
 	prompt = UI.TextEntry {
 		y = 2,
 		shadowText = 'enter command',
-		limit = 1024,
 		accelerators = {
 			enter               = 'command_enter',
 			up                  = 'history_back',
@@ -45,8 +39,9 @@ local page = UI.Page {
 	},
 	tabs = UI.Tabs {
 		y = 3,
-		[1] = UI.Tab {
-			tabTitle = 'Formatted',
+		formatted = UI.Tab {
+			title = 'Formatted',
+			index = 1,
 			grid = UI.ScrollingGrid {
 				columns = {
 					{ heading = 'Key',   key = 'name'  },
@@ -56,19 +51,25 @@ local page = UI.Page {
 				autospace = true,
 			},
 		},
-		[2] = UI.Tab {
-			tabTitle = 'Output',
+		output = UI.Tab {
+			title = 'Output',
+			index = 2,
+			backgroundColor = 'black',
 			output = UI.Embedded {
-				visible = true,
+				y = 2,
 				maxScroll = 1000,
-				backgroundColor = colors.black,
+				backgroundColor = 'black',
 			},
+			draw = function(self)
+				self:write(1, 1, string.rep('\131', self.width), 'black', 'primary')
+				self:drawChildren()
+			end,
 		},
 	},
 }
 
-page.grid = page.tabs[1].grid
-page.output = page.tabs[2].output
+page.grid = page.tabs.formatted.grid
+page.output = page.tabs.output.output
 
 function page:setPrompt(value, focus)
 	self.prompt:setValue(value)
@@ -133,31 +134,18 @@ function page:eventHandler(event)
 		self:executeStatement('_ENV')
 		command = nil
 
-	elseif event.type == 'hide_output' then
-		self.output:disable()
-
-		self.titleBar.oy = -1
-		self.titleBar.event = 'show_output'
-		self.titleBar.closeInd = '^'
-		self.titleBar:resize()
-
-		self.grid.ey = -2
-		self.grid:resize()
-
-		self:draw()
-
 	elseif event.type == 'tab_select' then
 		self:setFocus(self.prompt)
 
 	elseif event.type == 'show_output' then
-		self.tabs:selectTab(self.tabs[2])
+		self.tabs:selectTab(self.tabs.output)
 
 	elseif event.type == 'autocomplete' then
 		local value = self.prompt.value or ''
 		local sz = #value
 		local pos = self.prompt.entry.pos
 		self:setPrompt(autocomplete(sandboxEnv, value, self.prompt.entry.pos))
-		self.prompt:setPosition(pos + #value - sz)
+		self.prompt:setPosition(pos + #(self.prompt.value or '') - sz)
 		self.prompt:updateCursor()
 
 	elseif event.type == 'device' then
@@ -196,8 +184,7 @@ function page:eventHandler(event)
 			command = nil
 			self.grid:setValues(t)
 			self.grid:setIndex(1)
-			self.grid:adjustWidth()
-			self:draw()
+			self.grid:draw()
 		end
 		return true
 
@@ -243,8 +230,7 @@ function page:setResult(result)
 	end
 	self.grid:setValues(t)
 	self.grid:setIndex(1)
-	self.grid:adjustWidth()
-	self:draw()
+	self.grid:draw()
 end
 
 function page.grid:eventHandler(event)
@@ -362,7 +348,7 @@ function page:executeStatement(statement)
 	term.redirect(oterm)
 	counter = counter + 1
 
-	if s and m then
+	if s and type(m) ~= "nil" then
 		self:setResult(m)
 	else
 		self.grid:setValues({ })
@@ -371,10 +357,6 @@ function page:executeStatement(statement)
 			self:emit({ type = 'show_output' })
 		end
 	end
-
-	if _exit then
-		UI:exitPullEvents()
-	end
 end
 
 local args = Util.parse(...)
@@ -382,7 +364,8 @@ if args[1] then
 	command = 'args[1]'
 	sandboxEnv.args = args
 	page:setResult(args[1])
+	page:setPrompt(command)
 end
 
 UI:setPage(page)
-UI:pullEvents()
+UI:start()

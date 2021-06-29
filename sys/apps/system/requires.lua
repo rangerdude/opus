@@ -3,12 +3,11 @@ local UI     = require('opus.ui')
 local Util   = require('opus.util')
 
 local tab = UI.Tab {
-	tabTitle = 'Requires',
+	title = 'Requires',
 	description = 'Require path',
 	tabClose = true,
 	entry = UI.TextEntry {
 		x = 2, y = 2, ex = -2,
-		limit = 256,
 		shadowText = 'Enter new require path',
 		accelerators = {
 			enter = 'update_path',

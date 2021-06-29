@@ -1,6 +1,9 @@
 local BulkGet  = require('opus.bulkget')
+local Config   = require('opus.config')
 local Git      = require('opus.git')
+local LZW      = require('opus.compress.lzw')
 local Packages = require('opus.packages')
+local Tar      = require('opus.compress.tar')
 local Util     = require('opus.util')
 
 local fs       = _G.fs
@@ -16,9 +19,8 @@ local function makeSandbox()
 end
 
 local function Syntax(msg)
-	_G.printError(msg)
-	print('\nSyntax: Package list | install [name] ... |  update [name] | uninstall [name]')
-	error(0)
+	print('Syntax: package list | install [name] ... |  update [name] | updateall | uninstall [name]\n')
+	error(msg)
 end
 
 local function progress(max)
@@ -76,6 +78,11 @@ local function install(name, isUpdate, ignoreDeps)
 	local packageDir = fs.combine('packages', name)
 
 	local list = Git.list(manifest.repository)
+	-- clear out contents before install/update
+	-- TODO: figure out whether to run
+	-- install/uninstall for the package
+	fs.delete(packageDir)
+
 	local showProgress = progress(Util.size(list))
 
 	local getList = { }
@@ -95,6 +102,12 @@ local function install(name, isUpdate, ignoreDeps)
 
 	if not isUpdate then
 		runScript(manifest.install)
+	end
+
+	if Config.load('package').compression then
+		local c = Tar.tar_string(packageDir)
+		Util.writeFile(packageDir  .. '.tar.lzw', LZW.compress(c), 'wb')
+		fs.delete(packageDir)
 	end
 end
 
@@ -152,6 +165,7 @@ if action == 'uninstall' then
 
 	local packageDir = fs.combine('packages', name)
 	fs.delete(packageDir)
+	fs.delete(packageDir  .. '.tar.lzw')
 	print('removed: ' .. packageDir)
 	return
 end

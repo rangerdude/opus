@@ -4,10 +4,7 @@ if fs.native then
 	return
 end
 
-_G.requireInjector(_ENV)
 local Util = require('opus.util')
-
--- TODO: support getDrive for virtual nodes
 
 fs.native = Util.shallowCopy(fs)
 
@@ -22,8 +19,11 @@ for k,fn in pairs(fs) do
 	end
 end
 
-function nativefs.list(node, dir)
+function nativefs.resolve(_, dir)
+	return dir
+end
 
+function nativefs.list(node, dir)
 	local files
 	if fs.native.isDir(dir) then
 		files = fs.native.list(dir)
@@ -83,6 +83,18 @@ function nativefs.isDir(node, dir)
 	return fs.native.isDir(dir)
 end
 
+function nativefs.attributes(node, path)
+	if node.mountPoint == path then
+		return {
+			created = node.created or os.epoch('utc'),
+			modification = node.modification or os.epoch('utc'),
+			isDir = not not node.nodes,
+			size = node.size or 0,
+		}
+	end
+	return fs.native.attributes(path)
+end
+
 function nativefs.exists(node, dir)
 	if node.mountPoint == dir then
 		return true
@@ -138,8 +150,10 @@ local function getNode(dir)
 	return node
 end
 
+fs.getNode = getNode
+
 local methods = { 'delete', 'getFreeSpace', 'exists', 'isDir', 'getSize',
-	'isReadOnly', 'makeDir', 'getDrive', 'list', 'open' }
+	'isReadOnly', 'makeDir', 'getDrive', 'list', 'open', 'attributes' }
 
 for _,m in pairs(methods) do
 	fs[m] = function(dir, ...)
@@ -147,6 +161,12 @@ for _,m in pairs(methods) do
 		local node = getNode(dir)
 		return node.fs[m](node, dir, ...)
 	end
+end
+
+-- if a link, return the source for this link
+function fs.resolve(dir)
+	local n = getNode(dir)
+	return n.fs.resolve and n.fs.resolve(n, dir) or dir
 end
 
 function fs.complete(partial, dir, includeFiles, includeSlash)
@@ -158,6 +178,13 @@ function fs.complete(partial, dir, includeFiles, includeSlash)
 	return fs.native.complete(partial, dir, includeFiles, includeSlash)
 end
 
+local displayFlags = {
+	urlfs  = 'U',
+	linkfs = 'L',
+	ramfs  = 'T',
+	netfs  = 'N',
+}
+
 function fs.listEx(dir)
   dir = fs.combine(dir, '')
 	local node = getNode(dir)
@@ -168,20 +195,22 @@ function fs.listEx(dir)
 	local t = { }
 	local files = node.fs.list(node, dir)
 
-	pcall(function()
-		for _,f in ipairs(files) do
+	for _,f in ipairs(files) do
+		pcall(function()
 			local fullName = fs.combine(dir, f)
+			local n = fs.getNode(fullName)
 			local file = {
 				name = f,
 				isDir = fs.isDir(fullName),
 				isReadOnly = fs.isReadOnly(fullName),
+				fstype = n.mountPoint == fullName and displayFlags[n.fstype],
 			}
 			if not file.isDir then
 				file.size = fs.getSize(fullName)
 			end
 			table.insert(t, file)
-		end
-	end)
+		end)
+	end
 	return t
 end
 
@@ -206,12 +235,12 @@ function fs.copy(s, t)
 		end
 
 	else
-		local sf = Util.readFile(s)
+		local sf = Util.readFile(s, 'rb')
 		if not sf then
 			error('No such file')
 		end
 
-		Util.writeFile(t, sf)
+		Util.writeFile(t, sf, 'wb')
 	end
 end
 
@@ -265,11 +294,17 @@ local function getfstype(fstype)
 end
 
 function fs.mount(path, fstype, ...)
-
 	local vfs = getfstype(fstype)
 	if not vfs then
 		error('Invalid file system type')
 	end
+
+	-- get the mount point for the path
+	-- ie. if packages is mapped to disk/packages
+	-- and a request to mount /packages/foo
+	-- then use disk/packages/foo as the mountPoint
+	path = fs.resolve(path)
+
 	local node = vfs.mount(path, ...)
 	if node then
 		local parts = splitpath(path)
@@ -284,12 +319,16 @@ function fs.mount(path, fstype, ...)
 				tp.nodes[d] = Util.shallowCopy(tp)
 				tp.nodes[d].nodes = { }
 				tp.nodes[d].mountPoint = fs.combine(tp.mountPoint, d)
+				tp.nodes[d].created = os.epoch('utc')
+				tp.nodes[d].modification = os.epoch('utc')
 			end
 			tp = tp.nodes[d]
 		end
 
 		node.fs = vfs
 		node.fstype = fstype
+		node.created = node.created or os.epoch('utc')
+		node.modification = node.modification or os.epoch('utc')
 		if not targetName then
 			node.mountPoint = ''
 			fs.nodes = node

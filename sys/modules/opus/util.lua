@@ -9,6 +9,70 @@ local textutils = _G.textutils
 local _sformat  = string.format
 local _srep     = string.rep
 local _ssub     = string.sub
+local _unpack   = table.unpack
+local _bor      = bit32.bor
+local _bxor     = bit32.bxor
+
+-- support multiple simultaneous gets for same url
+if not http.safeGet then -- really no good place to put this hack
+	local reqs = { }
+
+	local function wrapRequest(_url, ...)
+		local ok, err = http.request(...)
+		if ok then
+			while true do
+				local event, param1, param2, param3 = os.pullEvent()
+
+				if event == "http_success"
+					and param1 == _url
+					and not reqs[tostring(param2)] then
+
+					reqs[tostring(param2)] = true
+					return param2
+
+				elseif event == "http_failure" and param1 == _url then
+					return nil, param2, param3
+				end
+			end
+		end
+		return nil, err
+	end
+
+	http.safeGet = function(_url, _headers, _binary)
+		return wrapRequest(_url, _url, nil, _headers, _binary)
+	end
+end
+
+local byteArrayMT
+byteArrayMT = {
+	__tostring = function(a) return string.char(_unpack(a)) end,
+	__index = {
+		toHex = function(self) return ("%02x"):rep(#self):format(_unpack(self)) end,
+		isEqual = function(self, t)
+			if type(t) ~= "table" then return false end
+			if #self ~= #t then return false end
+			local ret = 0
+			for i = 1, #self do
+				ret = _bor(ret, _bxor(self[i], t[i]))
+			end
+			return ret == 0
+		end,
+		sub = function(self, a, b)
+			local len = #self+1
+			local start = a%len
+			local stop = (b or len-1)%len
+			local ret = {}
+			local i = 1
+			for j = start, stop, start<stop and 1 or -1 do
+				ret[i] = self[j]
+				i = i+1
+			end
+			return setmetatable(ret, byteArrayMT)
+		end
+	}
+}
+
+Util.byteArrayMT = byteArrayMT
 
 function Util.hexToByteArray(str)
 	local r = {}
@@ -16,12 +80,12 @@ function Util.hexToByteArray(str)
 	for b in str:gmatch("%x%x?") do
 			r[#r+1] = tonumber(b, 16)
 	end
-	return r
+	return setmetatable(r, byteArrayMT)
 end
 
 function Util.byteArrayToHex(tbl)
 	if not tbl then error('byteArrayToHex: invalid table', 2) end
-	return ("%02x"):rep(#tbl):format(table.unpack(tbl))
+	return ("%02x"):rep(#tbl):format(_unpack(tbl))
 end
 
 function Util.tryTimed(timeout, f, ...)
@@ -39,10 +103,10 @@ function Util.tryTimes(attempts, f, ...)
 	for _ = 1, attempts do
 		result = { f(...) }
 		if result[1] then
-			return table.unpack(result)
+			return _unpack(result)
 		end
 	end
-	return table.unpack(result)
+	return _unpack(result)
 end
 
 function Util.timer()
@@ -429,7 +493,7 @@ function Util.backup(fname)
 	fs.copy(fname, backup)
 end
 
-function Util.writeFile(fname, data)
+function Util.writeFile(fname, data, flags)
 	if not fname or not data then error('Util.writeFile: invalid parameters', 2) end
 
 	if fs.exists(fname) then
@@ -441,7 +505,7 @@ function Util.writeFile(fname, data)
 		end
 	end
 
-	local file = io.open(fname, "w")
+	local file = io.open(fname, flags or "w")
 	if not file then
 		error('Unable to open ' .. fname, 2)
 	end
@@ -502,7 +566,7 @@ end
 
 --[[ loading and running functions ]] --
 function Util.httpGet(url, headers, isBinary)
-	local h, msg = http.get(url, headers, isBinary)
+	local h, msg = http.safeGet(url, headers, isBinary)
 	if h then
 		local contents = h.readAll()
 		h.close()
@@ -532,7 +596,6 @@ function Util.loadUrl(url, env)  -- loadfile equivalent
 end
 
 function Util.runUrl(env, url, ...)   -- os.run equivalent
-	setmetatable(env, { __index = _G })
 	local fn, m = Util.loadUrl(url, env)
 	if fn then
 		return pcall(fn, ...)
@@ -542,7 +605,6 @@ end
 
 function Util.run(env, path, ...)
 	if type(env) ~= 'table' then error('Util.run: env must be a table', 2) end
-	setmetatable(env, { __index = _G })
 	local fn, m = loadfile(path, env)
 	if fn then
 		return pcall(fn, ...)
@@ -552,7 +614,6 @@ end
 
 function Util.runFunction(env, fn, ...)
 	setfenv(fn, env)
-	setmetatable(env, { __index = _G })
 	return pcall(fn, ...)
 end
 
@@ -635,42 +696,31 @@ function Util.trimr(s)
 end
 -- end http://snippets.luacode.org/?p=snippets/trim_whitespace_from_string_76
 
--- word wrapping based on:
--- https://www.rosettacode.org/wiki/Word_wrap#Lua and
--- http://lua-users.org/wiki/StringRecipes
-local function paragraphwrap(text, linewidth, res)
-	linewidth = linewidth or 75
-	local spaceleft = linewidth
-	local line = { }
-
-	for word in text:gmatch("%S+") do
-		local len = #word + 1
-
-		--if colorMode then
-		--  word:gsub('()@([@%d])', function(pos, c) len = len - 2 end)
-		--end
-
-		if len > spaceleft then
-			table.insert(res, table.concat(line, ' '))
-			line = { word }
-			spaceleft = linewidth - len - 1
+local function wrap(text, max, lines)
+	local index = 1
+	repeat
+		if #text <= max then
+			table.insert(lines, text)
+			text = ''
+		elseif text:sub(max+1, max+1) == ' ' then
+			table.insert(lines, text:sub(index, max))
+			text = text:sub(max + 2)
 		else
-			table.insert(line, word)
-			spaceleft = spaceleft - len
+			local x = text:sub(1, max)
+			local s = x:match('(.*) ') or x
+			text = text:sub(#s + 1)
+			table.insert(lines, s)
 		end
-	end
-
-	table.insert(res, table.concat(line, ' '))
-	return table.concat(res, '\n')
+		text = text:match('^%s*(.*)')
+	until not text or #text == 0
+	return lines
 end
--- end word wrapping
 
 function Util.wordWrap(str, limit)
-	local longLines = Util.split(str)
 	local lines = { }
 
-	for _,line in ipairs(longLines) do
-		paragraphwrap(line, limit, lines)
+	for _,line in ipairs(Util.split(str)) do
+		wrap(line, limit, lines)
 	end
 
 	return lines
@@ -705,24 +755,6 @@ function Util.parse(...)
 		end
 	end
 	return args, options
-end
-
-function Util.args(arg)
-	local options, args = { }, { }
-
-	local k = 1
-	while k <= #arg do
-		local v = arg[k]
-		if _ssub(v, 1, 1) == '-' then
-			local opt = _ssub(v, 2)
-			options[opt] = arg[k + 1]
-			k = k + 1
-		else
-			table.insert(args, v)
-		end
-		k = k + 1
-	end
-	return options, args
 end
 
 -- http://lua-users.org/wiki/AlternativeGetOpt
