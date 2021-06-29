@@ -3,12 +3,14 @@ local UI     = require('opus.ui')
 local Util   = require('opus.util')
 
 local tab = UI.Tab {
-	tabTitle = 'Path',
+	title = 'Path',
 	description = 'Set the shell path',
 	tabClose = true,
+	[1] = UI.Window {
+		x = 2, y = 2, ex = -2, ey = 4,
+	},
 	entry = UI.TextEntry {
-		x = 2, y = 2, ex = -2,
-		limit = 256,
+		x = 3, y = 3, ex = -3,
 		shadowText = 'enter new path',
 		accelerators = {
 			enter = 'update_path',
@@ -16,7 +18,7 @@ local tab = UI.Tab {
 		help = 'add a new path',
 	},
 	grid = UI.Grid {
-		y = 4, ey = -3,
+		x = 2, y = 6, ex = -2, ey = -3,
 		disableHeader = true,
 		columns = { { key = 'value' } },
 		autospace = true,

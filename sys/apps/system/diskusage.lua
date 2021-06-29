@@ -16,12 +16,12 @@ local NftImages = {
 }
 
 local tab = UI.Tab {
-	tabTitle = 'Disks Usage',
+	title = 'Disks Usage',
 	description = 'Visualise HDD and disks usage',
 
 	drives = UI.ScrollingGrid {
-		x = 2, y = 1,
-		ex = '47%', ey = -7,
+		x = 2, y = 2,
+		ex = '47%', ey = -8,
 		columns = {
 			{ heading = 'Drive', key = 'name' },
 			{ heading = 'Side' ,key = 'side', textColor = colors.yellow }
@@ -30,7 +30,7 @@ local tab = UI.Tab {
 	},
 	infos = UI.Grid {
 		x = '52%', y = 2,
-		ex = -2, ey = -4,
+		ex = -2, ey = -8,
 		disableHeader = true,
 		unfocusedBackgroundSelectedColor = colors.black,
 		inactive = true,
@@ -40,18 +40,23 @@ local tab = UI.Tab {
 			{ key = 'value', align = 'right', textColor = colors.yellow },
 		}
 	},
-
+	[1] = UI.Window {
+		x = 2, y = -6, ex = -2, ey = -2,
+		backgroundColor = colors.black,
+	},
 	progress = UI.ProgressBar {
-		x = 11, y = -2,
-		ex = -2,
+		x = 11, y = -3,
+		ex = -3,
 	},
 	percentage = UI.Text {
-		x = 11, y = -3,
-		ex = '47%',
-		align = 'center',
+		y = -4, width = 5,
+		x = 12,
+		--align = 'center',
+		backgroundColor = colors.black,
 	},
 	icon = UI.NftImage {
-		x = 2, y = -5,
+		x = 2, y = -6, ey = -2,
+		backgroundColor = colors.black,
 		image = NFT.parse(NftImages.blank)
 	},
 }
@@ -131,6 +136,17 @@ function tab:enable()
 	self:updateDrives()
 	self:updateInfo()
 	UI.Tab.enable(self)
+	self.handler = Event.on({ 'disk', 'disk_eject' }, function()
+		os.sleep(1)
+		tab:updateDrives()
+		tab:updateInfo()
+		tab:sync()
+	end)
+end
+
+function tab:disable()
+	Event.off(self.handler)
+	UI.Tab.disable(self)
 end
 
 function tab:eventHandler(event)
@@ -141,12 +157,5 @@ function tab:eventHandler(event)
 	end
 	return true
 end
-
-Event.on({ 'disk', 'disk_eject' }, function()
-	os.sleep(1)
-	tab:updateDrives()
-	tab:updateInfo()
-	tab:sync()
-end)
 
 return tab

@@ -12,6 +12,10 @@ local function traceback(x)
 		return x
 	end
 
+	if x and x:match(':%d+: 0$') then
+		return x
+	end
+
 	if debug_traceback then
 		-- The parens are important, as they prevent a tail call occuring, meaning
 		-- the stack level is preserved. This ensures the code behaves identically
@@ -32,78 +36,68 @@ local function traceback(x)
 	end
 end
 
-local function trim_traceback(target, marker)
-	local ttarget, tmarker = {}, {}
-	for line in target:gmatch("([^\n]*)\n?") do ttarget[#ttarget + 1] = line end
-	for line in marker:gmatch("([^\n]*)\n?") do tmarker[#tmarker + 1] = line end
+local function trim_traceback(stack)
+	local trace = { }
+	local filters = {
+		"%[C%]: in function 'xpcall'",
+		"(...tail calls...)",
+		"xpcall: $",
+		"trace.lua:%d+:",
+		"stack traceback:",
+	}
 
-	-- Trim identical suffixes
-	local t_len, m_len = #ttarget, #tmarker
-	while t_len >= 3 and ttarget[t_len] == tmarker[m_len] do
-		table.remove(ttarget, t_len)
-		t_len, m_len = t_len - 1, m_len - 1
+	for line in stack:gmatch("([^\n]*)\n?") do table.insert(trace, line) end
+
+	local err = { }
+	while true do
+		local line = table.remove(trace, 1)
+		if not line or line == 'stack traceback:' then
+			break
+		end
+		table.insert(err, line)
+	end
+	err = table.concat(err, '\n')
+
+	local function matchesFilter(line)
+		for _, filter in pairs(filters) do
+			if line:match(filter) then
+				return true
+			end
+		end
 	end
 
-	-- Trim elements from this file and xpcall invocations
-	while t_len >= 1 and ttarget[t_len]:find("^\tstack_trace%.lua:%d+:") or
-				ttarget[t_len] == "\t[C]: in function 'xpcall'" or ttarget[t_len] == "  xpcall: " do
-		table.remove(ttarget, t_len)
-		t_len = t_len - 1
+	local t = { }
+	for _, line in pairs(trace) do
+		if not matchesFilter(line) then
+			line = line:gsub("in function", "in"):gsub('%w+/', '')
+			table.insert(t, line)
+		end
 	end
 
-	ttarget[#ttarget] = nil -- remove 2 calls added by the added xpcall
-	ttarget[#ttarget] = nil
-
-	return ttarget
+	return err, t
 end
 
---- Run a function with
 return function (fn, ...)
-	-- So this is rather grim: we need to get the full traceback and current one and remove
-	-- the common prefix
-	local trace
 	local args = { ... }
-
-	-- xpcall in Lua 5.1 does not accept parameters
-	-- which is not ideal
 	local res = table.pack(xpcall(function()
 		return fn(table.unpack(args))
 	end, traceback))
 
-	if not res[1] then 
-		trace = traceback("trace.lua:1:")
-	end
-	local ok, err = res[1], res[2]
+	if not res[1] and res[2] ~= nil then
+		local err, trace = trim_traceback(res[2])
 
-	if not ok and err ~= nil then
-		trace = trim_traceback(err, trace)
-
-		-- Find the position where the stack traceback actually starts
-		local trace_starts
-		for i = #trace, 1, -1 do
-			if trace[i] == "stack traceback:" then trace_starts = i; break end
+		if err:match(':%d+: 0$') then
+			return true
 		end
 
-		for _, line in pairs(trace) do
-			_G._syslog(line)
-		end
-
-		-- If this traceback is more than 15 elements long, keep the first 9, last 5
-		-- and put an ellipsis between the rest
-		local max = 10
-		if trace_starts and #trace - trace_starts > max then
-			local keep_starts = trace_starts + 7
-			for i = #trace - trace_starts - max, 0, -1 do
-				table.remove(trace, keep_starts + i)
+		if #trace > 0 then
+			_G._syslog('\n' .. err .. '\n' .. 'stack traceback:')
+			for _, v in ipairs(trace) do
+				_G._syslog(v)
 			end
-			table.insert(trace, keep_starts, "  ...")
 		end
 
-		for k, line in pairs(trace) do
-			trace[k] = line:gsub("in function", " in")
-		end
-
-		return false, table.remove(trace, 1), table.concat(trace, "\n")
+		return res[1], err, trace
 	end
 
 	return table.unpack(res, 1, res.n)

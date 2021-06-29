@@ -3,6 +3,7 @@ local UI    = require('opus.ui')
 
 local kernel     = _G.kernel
 local multishell = _ENV.multishell
+local tasks      = multishell and multishell.getTabs and multishell.getTabs() or kernel.routines
 
 UI:configure('Tasks', ...)
 
@@ -11,6 +12,7 @@ local page = UI.Page {
 		buttons = {
 			{ text = 'Activate',  event = 'activate'  },
 			{ text = 'Terminate', event = 'terminate' },
+			{ text = 'Inspect',   event = 'inspect'   },
 		},
 	},
 	grid = UI.ScrollingGrid {
@@ -21,7 +23,7 @@ local page = UI.Page {
 			{ heading = 'Status', key = 'status'    },
 			{ heading = 'Time',   key = 'timestamp' },
 		},
-		values = kernel.routines,
+		values = tasks,
 		sortColumn = 'uid',
 		autospace = true,
 		getDisplayValues = function (_, row)
@@ -38,7 +40,7 @@ local page = UI.Page {
 	},
 	accelerators = {
 		[ 'control-q' ] = 'quit',
-		space = 'activate',
+		[ ' ' ] = 'activate',
 		t = 'terminate',
 	},
 	eventHandler = function (self, event)
@@ -48,10 +50,16 @@ local page = UI.Page {
 				multishell.setFocus(t.uid)
 			elseif event.type == 'terminate' then
 				multishell.terminate(t.uid)
+			elseif event.type == 'inspect' then
+				multishell.openTab(_ENV, {
+					path = 'sys/apps/Lua.lua',
+					args = { t },
+					focused = true,
+				})
 			end
 		end
 		if event.type == 'quit' then
-			Event.exitPullEvents()
+			UI:quit()
 		end
 		UI.Page.eventHandler(self, event)
 	end
@@ -64,4 +72,4 @@ Event.onInterval(1, function()
 end)
 
 UI:setPage(page)
-UI:pullEvents()
+UI:start()

@@ -4,7 +4,7 @@ local UI     = require('opus.ui')
 local kernel = _G.kernel
 
 local aliasTab = UI.Tab {
-	tabTitle = 'Aliases',
+	title = 'Aliases',
 	description = 'Shell aliases',
 	alias = UI.TextEntry {
 		x = 2, y = 2, ex = -2,
@@ -13,14 +13,13 @@ local aliasTab = UI.Tab {
 	},
 	path = UI.TextEntry {
 		y = 3, x = 2, ex = -2,
-		limit = 256,
 		shadowText = 'Program path',
 		accelerators = {
 			enter = 'new_alias',
 		},
 	},
 	grid = UI.Grid {
-		y = 5,
+		x = 2, y = 5, ex = -2, ey = -2,
 		sortColumn = 'alias',
 		columns = {
 			{ heading = 'Alias',   key = 'alias' },

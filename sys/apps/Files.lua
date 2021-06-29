@@ -1,4 +1,3 @@
-local Alt    = require('opus.alternate')
 local Config = require('opus.config')
 local Event  = require('opus.event')
 local pastebin = require('opus.http.pastebin')
@@ -77,21 +76,65 @@ local Browser = UI.Page {
 	grid = UI.ScrollingGrid {
 		columns = {
 			{ heading = 'Name', key = 'name'             },
-			{                   key = 'flags', width = 2 },
-			{ heading = 'Size', key = 'fsize', width = 5 },
+			{                   key = 'flags', width = 3, textColor = 'lightGray' },
+			{ heading = 'Size', key = 'fsize', width = 5, textColor = 'yellow' },
 		},
 		sortColumn = 'name',
 		y = 2, ey = -2,
+		sortCompare = function(self, a, b)
+			if self.sortColumn == 'fsize' then
+				return a.size < b.size
+			elseif self.sortColumn == 'flags' then
+				return a.flags < b.flags
+			end
+			if a.isDir == b.isDir then
+				return a.name:lower() < b.name:lower()
+			end
+			return a.isDir
+		end,
+		getRowTextColor = function(_, file)
+			if file.marked then
+				return colors.green
+			end
+			if file.isDir then
+				return colors.cyan
+			end
+			if file.isReadOnly then
+				return colors.pink
+			end
+			return colors.white
+		end,
+		eventHandler = function(self, event)
+			if event.type == 'copy' then -- let copy be handled by parent
+				return false
+			end
+			return UI.ScrollingGrid.eventHandler(self, event)
+		end
 	},
 	statusBar = UI.StatusBar {
 		columns = {
 			{ key = 'status'               },
 			{ key = 'totalSize', width = 6 },
 		},
+		draw = function(self)
+			if self.parent.dir then
+				local info = '#:' .. Util.size(self.parent.dir.files)
+				local numMarked = Util.size(marked)
+				if numMarked > 0 then
+					info = info .. ' M:' .. numMarked
+				end
+				self:setValue('info', info)
+				self:setValue('totalSize', formatSize(self.parent.dir.totalSize))
+				UI.StatusBar.draw(self)
+			end
+		end,
+	},
+	question = UI.Question {
+		y = -2, x = -19,
+		label = 'Delete',
 	},
 	notification = UI.Notification { },
 	associations = UI.SlideOut {
-		backgroundColor = colors.cyan,
 		menuBar = UI.MenuBar {
 			buttons = {
 				{ text = 'Save',    event = 'save'    },
@@ -99,7 +142,7 @@ local Browser = UI.Page {
 			},
 		},
 		grid = UI.ScrollingGrid {
-			x = 2, ex = -6, y = 3, ey = -5,
+			x = 2, ex = -6, y = 3, ey = -8,
 			columns = {
 				{ heading = 'Extension', key = 'name'  },
 				{ heading = 'Program',   key = 'value' },
@@ -114,8 +157,11 @@ local Browser = UI.Page {
 			x = -4, y = 6,
 			text = '-', event = 'remove_entry', help = 'Remove',
 		},
+		[1] = UI.Window {
+			x = 2, y = -6, ex = -6, ey = -3,
+		},
 		form = UI.Form {
-			x = 3, y = -3, ey = -2,
+			x = 3, y = -5, ex = -7, ey = -3,
 			margin = 1,
 			manualControls = true,
 			[1] = UI.TextEntry {
@@ -130,16 +176,13 @@ local Browser = UI.Page {
 				formLabel = 'Program', formKey = 'value',
 				shadowText = 'program',
 				required = true,
-				limit = 128,
 			},
 			add = UI.Button {
 				x = -11, y = 1,
 				text = 'Add', event = 'add_association',
 			},
 		},
-		statusBar = UI.StatusBar {
-			backgroundColor = colors.cyan,
-		},
+		statusBar = UI.StatusBar { },
 	},
 	accelerators = {
 		[ 'control-q' ] = 'quit',
@@ -167,7 +210,7 @@ function Browser:enable()
 	self:setFocus(self.grid)
 end
 
-function Browser.menuBar:getActive(menuItem)
+function Browser.menuBar.getActive(_, menuItem)
 	local file = Browser.grid:getSelected()
 	if menuItem.flags == FILE then
 		return file and not file.isDir
@@ -175,56 +218,11 @@ function Browser.menuBar:getActive(menuItem)
 	return true
 end
 
-function Browser.grid:sortCompare(a, b)
-	if self.sortColumn == 'fsize' then
-		return a.size < b.size
-	elseif self.sortColumn == 'flags' then
-		return a.flags < b.flags
-	end
-	if a.isDir == b.isDir then
-		return a.name:lower() < b.name:lower()
-	end
-	return a.isDir
-end
-
-function Browser.grid:getRowTextColor(file)
-	if file.marked then
-		return colors.green
-	end
-	if file.isDir then
-		return colors.cyan
-	end
-	if file.isReadOnly then
-		return colors.pink
-	end
-	return colors.white
-end
-
-function Browser.grid:eventHandler(event)
-	if event.type == 'copy' then -- let copy be handled by parent
-		return false
-	end
-	return UI.ScrollingGrid.eventHandler(self, event)
-end
-
-function Browser.statusBar:draw()
-	if self.parent.dir then
-		local info = '#:' .. Util.size(self.parent.dir.files)
-		local numMarked = Util.size(marked)
-		if numMarked > 0 then
-			info = info .. ' M:' .. numMarked
-		end
-		self:setValue('info', info)
-		self:setValue('totalSize', formatSize(self.parent.dir.totalSize))
-		UI.StatusBar.draw(self)
-	end
-end
-
 function Browser:setStatus(status, ...)
 	self.notification:info(string.format(status, ...))
 end
 
-function Browser:unmarkAll()
+function Browser.unmarkAll()
 	for _,m in pairs(marked) do
 		m.marked = false
 	end
@@ -255,7 +253,6 @@ function Browser:getDirectory(directory)
 end
 
 function Browser:updateDirectory(dir)
-
 	dir.size = 0
 	dir.totalSize = 0
 	Util.clear(dir.files)
@@ -265,10 +262,11 @@ function Browser:updateDirectory(dir)
 		dir.size = #files
 		for _, file in pairs(files) do
 			file.fullName = fs.combine(dir.name, file.name)
-			file.flags = ''
+			file.flags = file.fstype or ' '
 			if not file.isDir then
 				dir.totalSize = dir.totalSize + file.size
 				file.fsize = formatSize(file.size)
+				file.flags = file.flags .. ' '
 			else
 				if config.showDirSizes then
 					file.size = fs.getSize(file.fullName, true)
@@ -276,11 +274,9 @@ function Browser:updateDirectory(dir)
 					dir.totalSize = dir.totalSize + file.size
 					file.fsize = formatSize(file.size)
 				end
-				file.flags = 'D'
+				file.flags = file.flags .. 'D'
 			end
-			if file.isReadOnly then
-				file.flags = file.flags .. 'R'
-			end
+			file.flags = file.flags .. (file.isReadOnly and 'R' or ' ')
 			if config.showHidden or file.name:sub(1, 1) ~= '.' then
 				dir.files[file.fullName] = file
 			end
@@ -344,7 +340,7 @@ function Browser:eventHandler(event)
 	local file = self.grid:getSelected()
 
 	if event.type == 'quit' then
-		Event.exitPullEvents()
+		UI:quit()
 
 	elseif event.type == 'edit' and file then
 		self:run('edit', file.name)
@@ -354,7 +350,7 @@ function Browser:eventHandler(event)
 		self:setStatus('Started cloud edit')
 
 	elseif event.type == 'shell' then
-		self:run(Alt.get('shell'))
+		self:run('shell')
 
 	elseif event.type == 'refresh' then
 		self:updateDirectory(self.dir)
@@ -432,28 +428,25 @@ function Browser:eventHandler(event)
 
 	elseif event.type == 'delete' then
 		if self:hasMarked() then
-			local width = self.statusBar:getColumnWidth('status')
-			self.statusBar:setColumnWidth('status', UI.term.width)
-			self.statusBar:setValue('status', 'Delete marked? (y/n)')
-			self.statusBar:draw()
-			self.statusBar:sync()
-			local _, ch = os.pullEvent('char')
-			if ch == 'y' or ch == 'Y' then
-				for _,m in pairs(marked) do
-					pcall(function()
-						fs.delete(m.fullName)
-					end)
-				end
-			end
-			marked = { }
-			self.statusBar:setColumnWidth('status', width)
-			self.statusBar:setValue('status', '/' .. self.dir.name)
-			self:updateDirectory(self.dir)
-
-			self.statusBar:draw()
-			self.grid:draw()
-			self:setFocus(self.grid)
+			self.question:show()
 		end
+		return true
+
+	elseif event.type == 'question_yes' then
+		for _,m in pairs(marked) do
+			pcall(fs.delete, m.fullName)
+		end
+		marked = { }
+		self:updateDirectory(self.dir)
+
+		self.question:hide()
+		self.statusBar:draw()
+		self.grid:draw()
+		self:setFocus(self.grid)
+
+	elseif event.type == 'question_no' then
+		self.question:hide()
+		self:setFocus(self.grid)
 
 	elseif event.type == 'copy' or event.type == 'cut' then
 		if self:hasMarked() then
@@ -472,7 +465,7 @@ function Browser:eventHandler(event)
 
 	elseif event.type == 'paste' then
 		for _,m in pairs(copied) do
-			local s, m = pcall(function()
+			pcall(function()
 				if cutMode then
 					fs.move(m.fullName, fs.combine(self.dir.name, m.name))
 				else
@@ -549,6 +542,4 @@ local args = Util.parse(...)
 Browser:setDir(args[1] or shell.dir())
 
 UI:setPage(Browser)
-
-Event.pullEvents()
-UI.term:reset()
+UI:start()

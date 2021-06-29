@@ -1,4 +1,5 @@
 local Ansi     = require('opus.ansi')
+local Config   = require('opus.config')
 local Packages = require('opus.packages')
 local UI       = require('opus.ui')
 local Util     = require('opus.util')
@@ -8,9 +9,11 @@ local term     = _G.term
 
 UI:configure('PackageManager', ...)
 
+local config = Config.load('package')
+
 local page = UI.Page {
 	grid = UI.ScrollingGrid {
-		x = 2, ex = 14, y = 2, ey = -5,
+		x = 2, ex = 14, y = 2, ey = -6,
 		values = { },
 		columns = {
 			{ heading = 'Package', key = 'name' },
@@ -21,13 +24,13 @@ local page = UI.Page {
 	},
 	add = UI.Button {
 		x = 2, y = -3,
-		text = 'Install',
+		text = ' + ',
 		event = 'action',
 		help = 'Install or update',
 	},
 	remove = UI.Button {
-		x = 12, y = -3,
-		text = 'Remove ',
+		x = 8, y = -3,
+		text = ' - ',
 		event = 'action',
 		operation = 'uninstall',
 		operationText = 'Remove',
@@ -41,10 +44,17 @@ local page = UI.Page {
 	},
 	description = UI.TextArea {
 		x = 16, y = 3, ey = -5,
-		marginRight = 0, marginLeft = 0,
+		marginRight = 2, marginLeft = 0,
+	},
+	UI.Checkbox {
+		x = 3, y = -5,
+		label = 'Compress',
+		textColor = 'yellow',
+		backgroundColor = 'primary',
+		value = config.compression,
+		help = 'Compress packages (experimental)',
 	},
 	action = UI.SlideOut {
-		backgroundColor = colors.cyan,
 		titleBar = UI.TitleBar {
 			event = 'hide-action',
 		},
@@ -103,8 +113,6 @@ end
 function page.action:show()
 	self.output.win:clear()
 	UI.SlideOut.show(self)
-	--self.output:draw()
-	--self.output.win.redraw()
 end
 
 function page:run(operation, name)
@@ -128,7 +136,6 @@ end
 function page:updateSelection(selected)
 	self.add.operation = selected.installed and 'update' or 'install'
 	self.add.operationText = selected.installed and 'Update' or 'Install'
-	self.add.text = selected.installed and 'Update' or 'Install'
 	self.remove.inactive = not selected.installed
 	self.add:draw()
 	self.remove:draw()
@@ -141,11 +148,15 @@ function page:eventHandler(event)
 	elseif event.type == 'grid_focus_row' then
 		local manifest = event.selected.manifest
 
-		self.description.value = string.format('%s%s\n\n%s%s',
+		self.description:setValue(string.format('%s%s\n\n%s%s',
 			Ansi.yellow, manifest.title,
-			Ansi.white, manifest.description)
+			Ansi.white, manifest.description))
 		self.description:draw()
 		self:updateSelection(event.selected)
+
+	elseif event.type == 'checkbox_change' then
+		config.compression = not config.compression
+		Config.update('package', config)
 
 	elseif event.type == 'updateall' then
 		self.operation = 'updateall'
@@ -184,7 +195,7 @@ function page:eventHandler(event)
 		self.action.button:draw()
 
 	elseif event.type == 'quit' then
-		UI:exitPullEvents()
+		UI:quit()
 	end
 	UI.Page.eventHandler(self, event)
 end
@@ -196,4 +207,4 @@ Packages:downloadList()
 page:loadPackages()
 page:sync()
 
-UI:pullEvents()
+UI:start()

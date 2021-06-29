@@ -1,9 +1,9 @@
-local Alt    = require('opus.alternate')
 local Event  = require('opus.event')
 local Socket = require('opus.socket')
 local Util   = require('opus.util')
 
 local kernel = _G.kernel
+local shell  = _ENV.shell
 local term   = _G.term
 local window = _G.window
 
@@ -41,18 +41,17 @@ local function telnetHost(socket, mode)
 		end
 	end
 
-	local shellThread = kernel.run({
-		terminal = win,
+	local shellThread = kernel.run(_ENV, {
 		window = win,
 		title = mode .. ' client',
 		hidden = true,
-		co = coroutine.create(function()
-			Util.run(_ENV, Alt.get('shell'), table.unpack(termInfo.program))
+		fn = function()
+			Util.run(kernel.makeEnv(_ENV), shell.resolveProgram('shell'), table.unpack(termInfo.program))
 			if socket.queue then
 				socket:write(socket.queue)
 			end
 			socket:close()
-		end)
+		end,
 	})
 
 	Event.addRoutine(function()
