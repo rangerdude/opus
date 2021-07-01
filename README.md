@@ -2,6 +2,7 @@
 
 <img src="https://github.com/kepler155c/opus-wiki/blob/master/assets/images/opus.gif?raw=true" width="540" height="360">
 
+## Modified version for personal use. Rangerdude
 ## Features
 * Multitasking OS - run programs in separate tabs
 * Telnet (wireless remote shell)
@@ -14,7 +15,9 @@
 * Run scripts on single or groups of computers (GUI)
 * Turtle follow (with GPS) and turtle come to you (without GPS)
 
-## Install
+
+## Many thanks to the good work of Kepler155c, xAnavrins, and others that contribue.
+
 ```
-pastebin run UzGHLbNC
+
 ```
